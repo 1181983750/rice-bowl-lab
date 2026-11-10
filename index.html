@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f7f8f6">
+  <meta name="description" content="你天生该吃哪碗饭？古风抉择，八类饭碗，读一读你的天赋与心意。">
+  <title>你天生该吃哪碗饭？ · 饭碗研究所</title>
+  <link rel="stylesheet" href="styles.css">
+  <script src="assets/lucide.min.js" defer></script>
+  <script src="data.js" defer></script>
+  <script src="rules.js" defer></script>
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <header class="site-header">
+    <a class="brand" href="#quiz" aria-label="饭碗研究所，返回测试"><span class="brand-icon"><i data-lucide="soup"></i></span><span>饭碗研究所<span class="brand-en">RICE BOWL LAB</span></span></a>
+    <nav class="main-nav" aria-label="主导航">
+      <a href="#quiz" data-nav="quiz">测一测</a>
+      <a href="#types" data-nav="types">饭碗图鉴</a>
+    </nav>
+    <span class="header-note"><span class="status-dot"></span>今日开饭</span>
+  </header>
+
+  <main id="main" tabindex="-1"></main>
+
+  <footer class="site-footer"><span>你的饭碗，从来不止一种选择。</span><span>古风趣味抉择 · 非专业职业测评</span></footer>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <dialog id="restart-dialog" aria-labelledby="restart-title">
+    <div class="dialog-head"><span class="small-label">重新开始</span><button class="icon-button" data-action="close-dialog" aria-label="关闭" title="关闭"><i data-lucide="x"></i></button></div>
+    <h2 id="restart-title">再尝一碗？</h2>
+    <p>本次答案将清空，重新开始测试。</p>
+    <div class="dialog-actions"><button class="button secondary" data-action="close-dialog">继续保留</button><button class="button primary" data-action="confirm-restart">重新测试<i data-lucide="rotate-ccw"></i></button></div>
+  </dialog>
+</body>
+</html>
