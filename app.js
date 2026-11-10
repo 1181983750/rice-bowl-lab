@@ -2,23 +2,31 @@
   'use strict';
   const data = window.QUIZ_DATA;
   const STORE_KEY = 'rice-bowl-lab:ancient:v2';
+  const ACCESS_KEY = 'rice-bowl-lab:access:v1';
+  const ACCESS_CODE = '9900';
   const main = document.querySelector('#main');
   const mainCount = data.questions.length;
   const total = mainCount + 1;
   const steps = [...data.questions.map(question => question.topic), '此心所向'];
   let state = restore();
   let toastTimer, lastFocus;
+  let unlocked = restoreAccess();
+  let transitionId = 0;
+  let transitioning = false;
+  let activeAnimation;
 
   function emptyState() { return { version: 2, index: 0, answers: Array(mainCount).fill(null), core: null }; }
   function restore() {
     try {
       const saved = JSON.parse(localStorage.getItem(STORE_KEY));
       if (saved?.version !== 2 || !Number.isInteger(saved.index) || saved.index < 0 || saved.index > mainCount || !Array.isArray(saved.answers) || saved.answers.length !== mainCount || saved.answers.some(answer => answer !== null && !['A', 'B', 'C', 'D'].includes(answer)) || (saved.core !== null && !['E', 'F'].includes(saved.core))) return emptyState();
-      if (saved.answers.some(answer => answer === null)) { saved.core = null; if (saved.index === mainCount) saved.index = saved.answers.indexOf(null); }
+      const firstGap = saved.answers.indexOf(null);
+      if (firstGap !== -1) { saved.answers.fill(null, firstGap); saved.core = null; saved.index = Math.min(saved.index, firstGap); }
       return saved;
     } catch { return emptyState(); }
   }
   function persist() { try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); } catch {} }
+  function restoreAccess() { try { return sessionStorage.getItem(ACCESS_KEY) === 'unlocked'; } catch { return false; } }
   function escape(value) { return String(value).replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]); }
   function icon(name, attributes = '') { return `<i data-lucide="${name}" ${attributes}></i>`; }
   function icons() { window.lucide?.createIcons({ attrs: { 'aria-hidden': 'true' } }); }
@@ -42,6 +50,10 @@
     return `<div class="page-heading"><div><div class="eyebrow">饭碗研究所<span>/</span>${eyebrow}</div><h1>${title}</h1></div>${caption ? `<div class="heading-caption">${caption}</div>` : ''}</div>`;
   }
   function render(animate = false, focus = false) {
+    document.querySelector('.main-nav').hidden = !unlocked;
+    document.querySelector('.header-note').innerHTML = unlocked ? '<span class="status-dot"></span>今日开饭' : icon('lock-keyhole') + '档案待启';
+    document.body.classList.toggle('access-locked', !unlocked);
+    if (!unlocked) { renderGate(); icons(); document.title = data.title + ' · 访问验证'; return; }
     let view = route();
     if ((view === 'result' || view === 'answers') && !complete()) { view = 'quiz'; history.replaceState(null, '', '#quiz'); }
     if (!['quiz', 'types', 'result', 'answers'].includes(view)) { view = 'quiz'; history.replaceState(null, '', '#quiz'); }
@@ -60,21 +72,62 @@
     if (view === 'answers') requestAnimationFrame(() => document.querySelector('#answer-review')?.scrollIntoView({ block: 'start', behavior: 'instant' }));
   }
 
+  function renderGate() {
+    main.innerHTML = `<section class="access-entry" aria-labelledby="access-title"><img class="access-photo" src="assets/rice.jpg" alt="一碗白米饭" width="100" height="100"><div class="eyebrow">饭碗研究所<span>/</span>私人档案</div><h1 id="access-title">你天生该吃哪碗饭？</h1><div class="access-seal">${icon('lock-keyhole')}访问验证</div><form id="access-form" class="access-form" novalidate><label for="access-code">四位访问码</label><div class="access-input-wrap"><input id="access-code" name="access-code" type="password" inputmode="numeric" maxlength="4" pattern="[0-9]{4}" autocomplete="off" placeholder="四位数字" aria-describedby="access-error" required><button type="button" class="access-toggle" data-action="toggle-code" title="显示访问码" aria-label="显示访问码" aria-pressed="false">${icon('eye')}</button></div><p id="access-error" class="access-error" role="alert"></p><button type="submit" class="button primary access-submit">开启我的档案${icon('arrow-right')}</button></form><p class="access-bottom">人间烟火，各有所长。</p></section>`;
+  }
+
+  function unlock(event) {
+    event.preventDefault();
+    const input = document.querySelector('#access-code'), error = document.querySelector('#access-error');
+    if (input.value !== ACCESS_CODE) {
+      input.setAttribute('aria-invalid', 'true'); error.textContent = input.value.length !== 4 ? '请输入四位数字访问码。' : '访问码不正确，请再试一次。';
+      if (!matchMedia('(prefers-reduced-motion: reduce)').matches) document.querySelector('.access-input-wrap').animate([{ transform: 'translateX(0)' }, { transform: 'translateX(-5px)' }, { transform: 'translateX(5px)' }, { transform: 'translateX(0)' }], { duration: 220 });
+      input.focus(); input.select(); return;
+    }
+    unlocked = true;
+    try { sessionStorage.setItem(ACCESS_KEY, 'unlocked'); } catch {}
+    history.replaceState(null, '', complete() ? '#result' : '#quiz'); render(true, true);
+  }
+
+  function cancelTransition() { transitionId++; activeAnimation?.cancel(); activeAnimation = null; transitioning = false; }
+  async function changeQuestion(nextIndex, direction = 1) {
+    if (!unlocked || transitioning) return;
+    transitioning = true;
+    const id = ++transitionId, reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const outgoing = main.querySelector('.question-surface');
+    outgoing.inert = true; outgoing.setAttribute('aria-busy', 'true');
+    try {
+      if (!reduced) {
+        activeAnimation = outgoing.animate([{ opacity: 1, transform: 'translateX(0)' }, { opacity: 0, transform: `translateX(${-18 * direction}px)` }], { duration: 140, easing: 'ease-in', fill: 'forwards' });
+        await activeAnimation.finished;
+      }
+      if (id !== transitionId || route() !== 'quiz') return;
+      if (nextIndex > mainCount) { navigate('result'); return; }
+      state.index = nextIndex; persist(); render(false, true);
+      const incoming = main.querySelector('.question-surface'); incoming.inert = true;
+      if (!reduced) {
+        activeAnimation = incoming.animate([{ opacity: 0, transform: `translateX(${18 * direction}px)` }, { opacity: 1, transform: 'translateX(0)' }], { duration: 230, easing: 'cubic-bezier(.2,.7,.2,1)' });
+        await activeAnimation.finished;
+      }
+      if (id === transitionId) { incoming.inert = false; incoming.querySelector('.question-title')?.focus({ preventScroll: true }); }
+    } catch (error) { if (error.name !== 'AbortError') throw error; }
+    finally { if (id === transitionId) { transitioning = false; activeAnimation = null; } }
+  }
+
   function renderQuiz() {
     const index = state.index, isCore = index === mainCount, selected = answerAt(index);
     const question = isCore ? { text: '做完这些抉择之后，此刻的你，更想怎样走向下一程？', icon: 'sprout', options: Object.entries(data.cores).map(([letter, core]) => ({ letter, text: core.text, subtitle: core.name })) } : data.questions[index];
-    const progress = mainComplete();
     main.innerHTML = pageHeading('你天生该吃哪碗饭<span class="title-dot">？</span>', '古风天赋档案', '<b>十</b>番抉择，一念所向') + `
       <div class="quiz-layout">
         <aside class="quiz-sidebar" aria-label="答题进度">
           <img class="rice-image" src="assets/rice.jpg" alt="盛满白米饭的黑色饭碗" width="231" height="150">
           <div class="photo-caption"><span>人间烟火，各有所长。</span>${icon('utensils')}</div>
           <div class="steps-label"><strong>抉择卷目</strong><span>${count()} / ${total} 已完成</span></div>
-          <div class="step-list">${steps.map((topic, i) => `<button class="step ${answerAt(i) ? 'done' : ''} ${i === index ? 'active' : ''} ${i === mainCount ? 'core-step' : ''}" data-question="${i}" ${i === index ? 'aria-current="step"' : ''} ${i === mainCount && !progress ? 'disabled' : ''}><span class="step-number">${answerAt(i) && i !== index ? icon('check') : i === mainCount ? icon('sprout') : String(i + 1).padStart(2, '0')}</span><span>${topic}</span>${i === index ? '<span class="step-marker"></span>' : ''}</button>`).join('')}</div>
+          <div class="step-list">${steps.map((topic, i) => `<div class="step ${answerAt(i) ? 'done' : ''} ${i === index ? 'active' : ''} ${i === mainCount ? 'core-step' : ''}" ${i === index ? 'aria-current="step"' : ''}><span class="step-number">${answerAt(i) && i !== index ? icon('check') : i === mainCount ? icon('sprout') : String(i + 1).padStart(2, '0')}</span><span>${topic}</span>${i === index ? '<span class="step-marker"></span>' : ''}</div>`).join('')}</div>
           <div class="sidebar-bottom">${icon('coffee')}心有所向，自成滋味。</div>
         </aside>
         <section class="question-surface ${isCore ? 'core-surface' : ''}" aria-labelledby="question-title">
-          <div class="mobile-progress" aria-label="答题进度">${steps.map((topic, i) => `<button class="mobile-step ${answerAt(i) ? 'done' : ''} ${i === index ? 'active' : ''}" data-question="${i}" aria-label="${i === mainCount ? '收尾题' : '第 ' + (i + 1) + ' 题'}：${topic}${answerAt(i) ? '，已作答' : ''}" ${i === index ? 'aria-current="step"' : ''} ${i === mainCount && !progress ? 'disabled' : ''}></button>`).join('')}</div>
+          <div class="mobile-progress" aria-label="答题进度">${steps.map((topic, i) => `<span class="mobile-step ${answerAt(i) ? 'done' : ''} ${i === index ? 'active' : ''}" aria-label="${i === mainCount ? '收尾题' : '第 ' + (i + 1) + ' 题'}：${topic}${answerAt(i) ? '，已作答' : ''}" ${i === index ? 'aria-current="step"' : ''}></span>`).join('')}</div>
           <div class="question-top"><span class="topic">${icon(question.icon)}${steps[index]}</span><span class="question-fraction">${isCore ? '<strong>收尾</strong> / 此心所向' : `<strong>${String(index + 1).padStart(2, '0')}</strong> / ${String(mainCount).padStart(2, '0')}`}</span></div>
           <div class="progress-track" aria-hidden="true"><span style="width:${(index + 1) / total * 100}%"></span></div>
           <h2 class="question-title" id="question-title" tabindex="-1">${escape(question.text)}</h2>
@@ -112,19 +165,19 @@
   }
 
   function selectAnswer(letter) {
+    if (!unlocked || transitioning) return;
     const accepted = state.index === mainCount ? ['E', 'F'] : ['A', 'B', 'C', 'D'];
     if (!accepted.includes(letter)) return;
     if (state.index === mainCount) state.core = letter; else state.answers[state.index] = letter;
     persist(); render(); main.querySelector(`[data-answer="${letter}"]`)?.focus({ preventScroll: true });
   }
   function next() {
-    if (!answerAt(state.index)) return;
-    if (state.index === mainCount) { if (complete()) { navigate('result'); window.scrollTo(0, 0); } return; }
-    if (state.index === mainCount - 1 && !mainComplete()) { state.index = state.answers.indexOf(null); toast('还有一处抉择，等你落笔。'); }
-    else state.index++;
-    persist(); render(true, true);
+    if (!unlocked || transitioning || !answerAt(state.index)) return;
+    if (state.index === mainCount) { if (complete()) changeQuestion(mainCount + 1); return; }
+    if (state.answers.slice(0, state.index + 1).some(answer => !answer)) return;
+    changeQuestion(state.index + 1);
   }
-  function previous() { if (state.index > 0) { state.index--; persist(); render(true, true); } }
+  function previous() { if (unlocked && !transitioning && state.index > 0) changeQuestion(state.index - 1, -1); }
   function restart() {
     if (count() === 0) { state = emptyState(); persist(); navigate('quiz'); return; }
     lastFocus = document.activeElement; document.querySelector('#restart-dialog').showModal();
@@ -193,14 +246,13 @@
   }
 
   document.addEventListener('click', event => {
-    const answer = event.target.closest('[data-answer]'); if (answer) { selectAnswer(answer.dataset.answer); return; }
-    const step = event.target.closest('[data-question]');
-    if (step) {
-      const nextIndex = Number(step.dataset.question);
-      if (!Number.isInteger(nextIndex) || nextIndex < 0 || nextIndex > mainCount) return;
-      if (nextIndex === mainCount && !mainComplete()) return;
-      state.index = nextIndex; persist(); render(true, true); return;
+    if (!unlocked) {
+      const toggle = event.target.closest('[data-action="toggle-code"]');
+      if (toggle) { const input = document.querySelector('#access-code'), show = input.type === 'password'; input.type = show ? 'text' : 'password'; toggle.innerHTML = icon(show ? 'eye-off' : 'eye'); toggle.title = toggle.ariaLabel = show ? '隐藏访问码' : '显示访问码'; toggle.setAttribute('aria-pressed', String(show)); icons(); input.focus(); }
+      return;
     }
+    if (transitioning) return;
+    const answer = event.target.closest('[data-answer]'); if (answer) { selectAnswer(answer.dataset.answer); return; }
     const action = event.target.closest('[data-action]')?.dataset.action;
     if (action === 'next') next();
     if (action === 'previous') previous();
@@ -212,15 +264,17 @@
     if (action === 'toggle-reviews') toggleReviews();
     if (action === 'download') downloadResult();
   });
+  document.addEventListener('submit', event => { if (event.target.id === 'access-form') unlock(event); });
+  document.addEventListener('input', event => { if (event.target.id === 'access-code') { event.target.removeAttribute('aria-invalid'); document.querySelector('#access-error').textContent = ''; } });
   document.addEventListener('keydown', event => {
-    if (route() !== 'quiz' || document.querySelector('dialog[open]') || event.ctrlKey || event.metaKey || event.altKey || /INPUT|TEXTAREA|SELECT/.test(event.target.tagName)) return;
+    if (!unlocked || transitioning || route() !== 'quiz' || document.querySelector('dialog[open]') || event.ctrlKey || event.metaKey || event.altKey || /INPUT|TEXTAREA|SELECT/.test(event.target.tagName)) return;
     const keys = state.index === mainCount ? ['E', 'F'] : ['A', 'B', 'C', 'D'];
     if (/^[1-4]$/.test(event.key) && keys[Number(event.key) - 1]) { event.preventDefault(); selectAnswer(keys[Number(event.key) - 1]); }
     if (event.key === 'ArrowRight') { event.preventDefault(); next(); }
     if (event.key === 'ArrowLeft') { event.preventDefault(); previous(); }
   });
-  window.addEventListener('hashchange', () => { clearTimeout(toastTimer); document.querySelector('#toast').classList.remove('visible'); render(true); if (route() !== 'answers') window.scrollTo(0, 0); });
-  window.addEventListener('storage', event => { if (event.key === STORE_KEY) { state = restore(); render(); } });
+  window.addEventListener('hashchange', () => { cancelTransition(); clearTimeout(toastTimer); document.querySelector('#toast').classList.remove('visible'); render(true); if (route() !== 'answers') window.scrollTo(0, 0); });
+  window.addEventListener('storage', event => { if (event.key === STORE_KEY) { cancelTransition(); state = restore(); render(); } });
   if (!location.hash) history.replaceState(null, '', complete() ? '#result' : '#quiz');
   render();
 })();
