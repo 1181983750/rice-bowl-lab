@@ -90,7 +90,7 @@
   }
 
   function cancelTransition() { transitionId++; activeAnimation?.cancel(); activeAnimation = null; transitioning = false; }
-  async function changeQuestion(nextIndex, direction = 1) {
+  async function changeQuestion(nextIndex, direction = 1, showSelection = false) {
     if (!unlocked || transitioning) return;
     transitioning = true;
     const id = ++transitionId, reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -98,7 +98,7 @@
     outgoing.inert = true; outgoing.setAttribute('aria-busy', 'true');
     try {
       if (!reduced) {
-        activeAnimation = outgoing.animate([{ opacity: 1, transform: 'translateX(0)' }, { opacity: 0, transform: `translateX(${-18 * direction}px)` }], { duration: 140, easing: 'ease-in', fill: 'forwards' });
+        activeAnimation = outgoing.animate([{ opacity: 1, transform: 'translateX(0)' }, { opacity: 0, transform: `translateX(${-18 * direction}px)` }], { delay: showSelection ? 180 : 0, duration: 140, easing: 'ease-in', fill: 'forwards' });
         await activeAnimation.finished;
       }
       if (id !== transitionId || route() !== 'quiz') return;
@@ -170,12 +170,13 @@
     if (!accepted.includes(letter)) return;
     if (state.index === mainCount) state.core = letter; else state.answers[state.index] = letter;
     persist(); render(); main.querySelector(`[data-answer="${letter}"]`)?.focus({ preventScroll: true });
+    next(true);
   }
-  function next() {
+  function next(showSelection = false) {
     if (!unlocked || transitioning || !answerAt(state.index)) return;
-    if (state.index === mainCount) { if (complete()) changeQuestion(mainCount + 1); return; }
+    if (state.index === mainCount) { if (complete()) changeQuestion(mainCount + 1, 1, showSelection); return; }
     if (state.answers.slice(0, state.index + 1).some(answer => !answer)) return;
-    changeQuestion(state.index + 1);
+    changeQuestion(state.index + 1, 1, showSelection);
   }
   function previous() { if (unlocked && !transitioning && state.index > 0) changeQuestion(state.index - 1, -1); }
   function restart() {
@@ -267,7 +268,7 @@
   document.addEventListener('submit', event => { if (event.target.id === 'access-form') unlock(event); });
   document.addEventListener('input', event => { if (event.target.id === 'access-code') { event.target.removeAttribute('aria-invalid'); document.querySelector('#access-error').textContent = ''; } });
   document.addEventListener('keydown', event => {
-    if (!unlocked || transitioning || route() !== 'quiz' || document.querySelector('dialog[open]') || event.ctrlKey || event.metaKey || event.altKey || /INPUT|TEXTAREA|SELECT/.test(event.target.tagName)) return;
+    if (!unlocked || transitioning || event.repeat || route() !== 'quiz' || document.querySelector('dialog[open]') || event.ctrlKey || event.metaKey || event.altKey || /INPUT|TEXTAREA|SELECT/.test(event.target.tagName)) return;
     const keys = state.index === mainCount ? ['E', 'F'] : ['A', 'B', 'C', 'D'];
     if (/^[1-4]$/.test(event.key) && keys[Number(event.key) - 1]) { event.preventDefault(); selectAnswer(keys[Number(event.key) - 1]); }
     if (event.key === 'ArrowRight') { event.preventDefault(); next(); }
